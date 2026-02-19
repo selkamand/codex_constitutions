@@ -1,164 +1,254 @@
-# Minimal AI Constitution for Nextflow DSL2 (Strict Syntax / Parser v2)
+# Minimal AI Constitution for Nextflow DSL2  
+## Strict Syntax v2 • Modular • Reproducible • Side-Effect Controlled
 
-**Scope:** All pipeline development and review must target **Nextflow DSL2** running with **strict syntax (syntax parser v2)**.  
-Strict syntax is the default in modern Nextflow releases and must be treated as mandatory.
+---
+
+# 0. Scope
+
+All pipeline development and review must target:
+
+- **Nextflow DSL2**
+- **Strict syntax (parser v2)**
+- Modern stable Nextflow (≥ 25.04.0 unless otherwise pinned)
+
+Strict syntax is mandatory and assumed enabled in CI.
 
 ---
 
 # 1. Core Principles
 
-1. **Reproducibility is mandatory**
-   - Pin Nextflow version via `manifest.nextflowVersion`.
-   - Pin tool versions (container digest, conda lock, or module version).
-   - No unversioned dependencies.
+## 1.1 Reproducibility is mandatory
+- `manifest.nextflowVersion` must be pinned.
+- Containers must use immutable digests (not floating tags).
+- Conda environments must be lock-resolved.
+- No unpinned tool versions.
 
-2. **Strict syntax v2 compliance is required**
-   - Code must parse cleanly with `NXF_SYNTAX_PARSER=v2`.
-   - Any construct removed or restricted under strict syntax is forbidden.
+## 1.2 Strict syntax v2 compliance is required
+- Code must parse cleanly with `NXF_SYNTAX_PARSER=v2`.
+- Deprecated constructs are forbidden.
+- No backward-compatibility hacks.
 
-3. **Dataflow clarity over Groovy cleverness**
-   - Pipelines are dataflow graphs.
-   - Processes communicate only through channels.
-   - Avoid implicit behavior and side effects.
+## 1.3 Processes are pure functions
+A process:
+- Takes inputs via channels
+- Produces declared outputs
+- Has **no external side effects**
+- Does not manage final output layout
 
----
-
-# 2. Absolute Rules (Strict Syntax v2)
-
-The following are **not allowed**:
-
-- `import` statements in pipeline scripts.
-- Custom `class` definitions in scripts (move to `lib/` if needed).
-- Mixing top-level statements with declarations.
-- `for` / `while` loops (use `.map`, `.filter`, `.collect`, etc.).
-- `switch` statements (use `if / else if / else`).
-- Spread operator (`*list`).
-- Assignment inside expressions (`foo(x = 1)`).
-- Post/pre increment or decrement in expressions (`x++`, `--y`).
-- Implicit environment variable interpolation like `"${PWD}"`  
-  → must use `env('PWD')`.
-- `include ... addParams(...)` or `include ... params(...)`.
-
-Restricted behavior:
-
-- Variables must be declared with `def` (no typed variable declarations).
-- Slashy strings cannot be interpolated.
-- Only explicit casts (`as Type`) are allowed.
-- Closure parameters must be explicit (avoid implicit `it`).
-- Prefer `channel.of()` over `Channel.of()`.
+## 1.4 Workflow controls orchestration and publishing
+- All data routing, conditional logic, and publishing decisions occur at workflow scope.
+- Modules must be location-agnostic and reusable.
 
 ---
 
-# 3. Parameter & Version Policy
+# 2. Absolute Syntax Rules (Strict Parser v2)
 
-1. **Declare minimum Nextflow version**
-   ```groovy
-   manifest {
-       nextflowVersion = '>=25.04.0'
-   }
-   ```
+The following are **forbidden**:
 
-2. **Do not rely on legacy CLI type coercion**
-   - Explicitly validate and coerce params.
-   - Use early validation and fail fast.
+- `import` statements in pipeline scripts
+- Custom `class` definitions in scripts
+- `for` / `while` loops (use channel operators)
+- `switch` statements
+- Spread operator (`*list`)
+- Assignment inside expressions
+- `x++` / `--y`
+- Implicit closure parameter `it`
+- Slashy string interpolation
+- `include ... addParams(...)`
+- Mixing top-level logic with declarations
+- Implicit Groovy behavior relied upon for channel operations
+- Implicit type coercion assumptions
 
-3. **Validate critical params**
-   - Required paths must exist.
-   - Enums must be checked against allowed sets.
-   - Identifiers must match safe regex.
+Variables must:
+- Be declared using `def`
+- Use explicit casts (`as Type`) when required
+
+---
+
+# 3. Parameter & Validation Policy
+
+## 3.1 Version pinning required
+
+```groovy
+manifest {
+    nextflowVersion = '>=25.04.0'
+}
+```
+
+## 3.2 All critical params must be validated
+
+Required:
+- Existence checks for file paths
+- Regex validation for identifiers
+- Enum validation for allowed values
+- Explicit type coercion
+
+Fail fast. Never defer parameter errors into process runtime.
 
 ---
 
 # 4. Workflow Architecture Rules
 
-1. **Use DSL2 modular structure**
-   - Processes in modules.
-   - Complex chains grouped into subworkflows.
-   - No hidden global `params` usage inside modules.
+## 4.1 DSL2 modular structure required
+- Processes live in modules when reusable
+- Subworkflows encapsulate multi-step logic
+- No hidden global `params` usage inside modules
 
-2. **Optional logic must use workflow-level `if`**
-   - Conditional chains are implemented as subworkflows.
-   - Avoid scattering `when:` unless per-sample gating is required.
+## 4.2 Channel contracts are formal APIs
+- Tuple schemas must be documented
+- Reordering must occur in one controlled `.map {}` block
+- Avoid long positional tuples without schema comment
 
-3. **Channel contracts are explicit**
-   - Treat tuple structure as a formal contract.
-   - Use `(meta, ...)` patterns for stability.
-   - Reordering must happen in one controlled `.map {}` block.
+## 4.3 Optional logic lives at workflow scope
+- Use `if` at workflow level
+- Avoid per-process `when:` unless strictly per-sample
 
-4. **Processes never “return values”**
-   - They emit files or `val` outputs.
-   - Downstream logic operates on channels only.
-
----
-
-# 5. Data Integrity Rules
-
-1. **No reliance on tuple position folklore**
-   - Document channel schemas.
-   - Avoid long positional tuples where possible.
-
-2. **Single responsibility processes**
-   - One logical task per process.
-   - No mixed compute + decision logic.
-
-3. **Deterministic outputs**
-   - Stable file naming.
-   - Explicit `publish` / `output` declarations.
-   - No hidden workdir dependencies.
+## 4.4 Processes never return values
+- They emit declared outputs only
+- All downstream logic operates on channels
 
 ---
 
-# 6. Review Checklist (Mandatory)
+# 5. Publishing & Output Contract (Non-Negotiable)
+
+## 5.1 publishDir is forbidden inside processes
+
+The following is permanently banned:
+
+```groovy
+process X {
+    publishDir ...
+}
+```
+
+Rationale:
+- Breaks modularity
+- Hard-codes output paths
+- Introduces hidden side effects
+- Violates functional purity
+
+## 5.2 Processes must be side-effect free
+
+Inside `script:` blocks, the following are forbidden:
+
+- `cp` / `mv` / `rsync` to `${params.outdir}`
+- Writing outside task working directory
+- Referring to global output paths
+
+A process may only write:
+- Declared output files
+- Within its task work directory
+
+## 5.3 Publishing must occur centrally
+
+Allowed patterns:
+
+### Pattern A — Workflow output block
+
+```groovy
+output {
+    qc_results {
+        path "${params.outdir}/qc"
+        mode 'copy'
+    }
+}
+```
+
+### Pattern B — workflow `publish:` block
+
+```groovy
+workflow {
+    publish:
+    qc = qc_ch
+}
+```
+
+### Pattern C — config-driven publishing
+
+In `nextflow.config`:
+
+```groovy
+process {
+  withName: QC_ALIGNED_BAM {
+    publishDir = "${params.outdir}/qc"
+  }
+}
+```
+
+(If config-driven publishing is used, it must be centralized and documented.)
+
+---
+
+# 6. Deterministic Output Rules
+
+- File names must be stable and reproducible.
+- No random suffixes.
+- No reliance on workdir naming.
+- Directories should not be emitted unless unavoidable.
+- Prefer emitting explicit file lists or manifests.
+
+---
+
+# 7. Review Checklist (Mandatory)
 
 Every change must confirm:
 
 - ✅ Strict syntax v2 compliance
-- ✅ No banned constructs introduced
-- ✅ Channel schema unchanged or clearly version-bumped
+- ✅ No `publishDir` in any process
+- ✅ No external side-effects in `script:` blocks
+- ✅ Publishing occurs only at workflow/config scope
+- ✅ Channel schemas preserved or versioned
 - ✅ Tool versions pinned
-- ✅ Nextflow minimum version correct
-- ✅ Parameter validation updated if needed
-- ✅ Optional branches implemented via subworkflow logic
+- ✅ Required params validated
+- ✅ No forbidden Groovy constructs
+- ✅ No reliance on implicit coercion
 
 ---
 
-# 7. CI Enforcement
+# 8. CI Enforcement
 
 CI must:
 
 - Run with `NXF_SYNTAX_PARSER=v2`
-- Execute `nextflow lint`
-- Execute at least one minimal end-to-end test dataset
-- Fail on syntax warnings related to strict mode
+- Run `nextflow lint`
+- Execute minimal test dataset
+- Fail on syntax warnings
+- Fail if `publishDir` appears inside any process block
+- Fail if `${params.outdir}` appears inside any `script:` block
 
 ---
 
-# 8. Upgrade Policy
+# 9. Upgrade Policy
 
 When upgrading Nextflow:
 
-1. Enable strict syntax if not already default.
-2. Remove deprecated constructs immediately.
-3. Bump `manifest.nextflowVersion`.
-4. Re-run validation suite before release.
+1. Confirm strict syntax default behavior
+2. Remove deprecated constructs immediately
+3. Bump `manifest.nextflowVersion`
+4. Run validation suite
+5. Verify publishing still centralized
 
 ---
 
-# 9. Non-Negotiable Standard
+# 10. Non-Negotiable Standard
 
-If code:
-- Relies on Groovy behavior not guaranteed in strict syntax
-- Depends on implicit typing
-- Uses removed constructs
-- Or violates channel contract clarity
+Code must be rejected if it:
 
-It must be rejected and rewritten.
+- Uses `publishDir` inside processes
+- Introduces filesystem side effects
+- Relies on implicit Groovy behavior
+- Breaks channel contract clarity
+- Violates strict syntax v2 constraints
+- Mixes orchestration and execution concerns
 
 ---
 
-This constitution ensures:
-- Forward compatibility with strict syntax
-- Stable DSL2 modular pipelines
-- Reproducibility across environments
-- Minimal technical debt accumulation
-- Explicit handling of all syntax v1 → v2 differences
+# Final Guarantee
+
+Under this constitution:
+
+- Processes remain pure
+- Publishing is centralized
+- Strict syntax compliance is enforced
+- Side effects are eliminated
+- Modular reuse is preserved
