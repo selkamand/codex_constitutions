@@ -202,6 +202,10 @@ Every change must confirm:
 - ✅ Required params validated
 - ✅ No forbidden Groovy constructs
 - ✅ No reliance on implicit coercion
+- ✅ A `test` profile exists
+- ✅ At least one supported runtime profile exists
+- ✅ CI executes `nextflow run . -profile <runtime>,test`
+- ✅ Runtime detection logic is config-aware and does not invent profiles
 
 ---
 
@@ -211,10 +215,144 @@ CI must:
 
 - Run with `NXF_SYNTAX_PARSER=v2`
 - Run `nextflow lint`
-- Execute minimal test dataset
+- Execute a minimal test dataset
 - Fail on syntax warnings
 - Fail if `publishDir` appears inside any process block
 - Fail if `${params.outdir}` appears inside any `script:` block
+
+## 8.1 Test execution profile policy
+
+Pipeline tests must execute the pipeline from the repository root using:
+
+```bash
+nextflow run . -profile <runtime>,test
+```
+
+Where:
+
+- `<runtime>` is a real execution profile such as `docker`, `singularity`, `apptainer`, `podman`, `conda`, or another explicitly supported runtime profile
+- `test` is the dedicated lightweight test profile
+- The runtime profile must be combined with `test`, not used instead of it
+
+Examples:
+
+```bash
+nextflow run . -profile docker,test
+nextflow run . -profile singularity,test
+nextflow run . -profile apptainer,test
+```
+
+## 8.2 Runtime profile discovery must be automatic
+
+CI must not hard-code exactly one runtime unless the repository supports only one.
+
+Instead, CI/test logic must inspect repository configuration and determine which runtime profiles are actually available. Discovery must examine, as applicable:
+
+- `nextflow.config`
+- included config files
+- `conf/*.config`
+- profile blocks declared in the pipeline
+- profile documentation if used as the canonical support declaration
+
+The test runner must:
+
+1. Detect supported runtime profiles
+2. Prefer containerized runtimes over host execution
+3. Run at least one valid `<runtime>,test` combination
+4. Run multiple runtime tests when the project explicitly supports multiple runtimes and CI resources allow it
+
+## 8.3 Required runtime selection order
+
+When multiple supported runtime profiles are present, CI should prefer them in this order unless the repository documents a different required precedence:
+
+1. `docker`
+2. `singularity`
+3. `apptainer`
+4. `podman`
+5. `conda`
+
+If none of the above are defined, CI must fail with a configuration error unless the constitution explicitly permits another named runtime profile.
+
+## 8.4 The `test` profile is mandatory
+
+Every pipeline must define a `test` profile.
+
+The `test` profile must:
+
+- use a minimal deterministic dataset
+- minimize runtime and resource usage
+- avoid network dependence where possible
+- preserve full pipeline validity
+- be compatible with each supported runtime profile unless explicitly documented otherwise
+
+A pipeline is non-compliant if it requires ad hoc CLI flags in CI instead of a proper `test` profile.
+
+## 8.5 Profile composition rules
+
+Profiles must be composable.
+
+Required:
+
+- runtime concerns belong in runtime profiles
+- test-input/resource overrides belong in the `test` profile
+- orchestration/test logic must not be duplicated across runtimes
+
+Forbidden:
+
+- separate one-off profiles like `docker_test`, `singularity_test`, unless unavoidable and justified
+- test logic embedded directly into runtime profiles
+- CI commands that bypass the standard profile contract
+
+Preferred pattern:
+
+```groovy
+profiles {
+    docker {
+        docker.enabled = true
+    }
+    singularity {
+        singularity.enabled = true
+    }
+    test {
+        params.input = 'tests/data/*'
+        params.max_samples = 2
+    }
+}
+```
+
+## 8.6 Test command discovery must be config-aware
+
+CI wrappers/scripts may inspect config to choose valid commands, but they must not silently guess unsupported profile names.
+
+Allowed behavior:
+
+- parse declared profile names
+- verify that `test` exists
+- verify that at least one supported runtime exists
+- construct commands of the form `nextflow run . -profile <runtime>,test`
+
+Forbidden behavior:
+
+- running `nextflow run . -profile test` alone when a runtime profile exists
+- inventing undeclared profile names
+- falling back to ambient local tools as a substitute for a declared runtime profile
+
+## 8.7 Minimum CI matrix expectation
+
+At minimum, CI must execute one successful profile combination:
+
+```bash
+nextflow run . -profile <detected-runtime>,test
+```
+
+If the repository explicitly claims support for multiple runtimes, CI should validate more than one:
+
+```bash
+nextflow run . -profile docker,test
+nextflow run . -profile singularity,test
+```
+
+A claimed runtime that is never exercised in CI should be treated as lower trust and may be removed from support documentation.
 
 ---
 
@@ -240,6 +378,9 @@ Code must be rejected if it:
 - Breaks channel contract clarity
 - Violates strict syntax v2 constraints
 - Mixes orchestration and execution concerns
+- Lacks a `test` profile
+- Cannot be tested via `nextflow run . -profile <runtime>,test`
+- Declares runtime support that CI never validates
 
 ---
 
