@@ -58,6 +58,7 @@ The following are **forbidden**:
 - Mixing top-level logic with declarations
 - Implicit Groovy behavior relied upon for channel operations
 - Implicit type coercion assumptions
+- Use of `Channel.<operators>` - should be `channel.<operators>` (lowercase)
 
 Variables must:
 - Be declared using `def`
